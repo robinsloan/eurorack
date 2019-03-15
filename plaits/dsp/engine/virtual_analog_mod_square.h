@@ -32,15 +32,16 @@
 #include "plaits/dsp/engine/engine.h"
 #include "plaits/dsp/oscillator/variable_saw_oscillator.h"
 #include "plaits/dsp/oscillator/variable_shape_oscillator.h"
+#include "plaits/dsp/fx/overdrive.h"
 
 #define VA_VARIANT 2
 
 namespace plaits {
 
-class VirtualAnalogEngine : public Engine {
+class VirtualAnalogModSquare : public Engine {
  public:
-  VirtualAnalogEngine() { }
-  ~VirtualAnalogEngine() { }
+  VirtualAnalogModSquare() { }
+  ~VirtualAnalogModSquare() { }
 
   virtual void Init(stmlib::BufferAllocator* allocator);
   virtual void Reset();
@@ -59,11 +60,13 @@ class VirtualAnalogEngine : public Engine {
   VariableShapeOscillator sync_;
   VariableShapeOscillator variable_saw_square_;
 
+  Overdrive overdrive_;
+
   float auxiliary_amount_;
   float xmod_amount_;
   float* temp_buffer_;
 
-  DISALLOW_COPY_AND_ASSIGN(VirtualAnalogEngine);
+  DISALLOW_COPY_AND_ASSIGN(VirtualAnalogModSquare);
 };
 
 }  // namespace plaits

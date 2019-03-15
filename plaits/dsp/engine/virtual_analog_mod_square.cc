@@ -26,7 +26,7 @@
 //
 // 2 variable shape oscillators with sync, FM and crossfading.
 
-#include "plaits/dsp/engine/virtual_analog_engine.h"
+#include "plaits/dsp/engine/virtual_analog_mod_square.h"
 
 #include <algorithm>
 
@@ -37,11 +37,13 @@ namespace plaits {
 using namespace std;
 using namespace stmlib;
 
-void VirtualAnalogEngine::Init(BufferAllocator* allocator) {
+void VirtualAnalogModSquare::Init(BufferAllocator* allocator) {
   primary_.Init();
   auxiliary_.Init();
   sync_.Init();
   variable_saw_square_.Init();
+
+  overdrive_.Init();
 
   auxiliary_amount_ = 0.0f;
   xmod_amount_ = 0.0f;
@@ -49,7 +51,7 @@ void VirtualAnalogEngine::Init(BufferAllocator* allocator) {
   temp_buffer_ = allocator->Allocate<float>(kMaxBlockSize);
 }
 
-void VirtualAnalogEngine::Reset() {
+void VirtualAnalogModSquare::Reset() {
 
 }
 
@@ -61,7 +63,7 @@ inline float Squash(float x) {
   return x * x * (3.0f - 2.0f * x);
 }
 
-float VirtualAnalogEngine::ComputeDetuning(float detune) const {
+float VirtualAnalogModSquare::ComputeDetuning(float detune) const {
   detune = 2.05f * detune - 1.025f;
   CONSTRAIN(detune, -1.0f, 1.0f);
 
@@ -74,7 +76,7 @@ float VirtualAnalogEngine::ComputeDetuning(float detune) const {
   return (a + (b - a) * Squash(Squash(detune_fractional))) * sign;
 }
 
-void VirtualAnalogEngine::Render(
+void VirtualAnalogModSquare::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,
@@ -194,40 +196,26 @@ void VirtualAnalogEngine::Render(
 
   // Render double varishape to OUT.
 
-  // controls for square 1 -- TIMBRE knob
+  // controls for square waves -- TIMBRE knob
 
   float square_pw = 1.3f * parameters.timbre - 0.15f;
   CONSTRAIN(square_pw, 0.005f, 0.5f);
 
-  const float square_sync_ratio = parameters.timbre < 0.5f
-      ? 0.0f
-      : (parameters.timbre - 0.5f) * (parameters.timbre - 0.5f) * 4.0f * 48.0f;
-
   const float square_gain = min(parameters.timbre * 8.0f, 1.0f);
 
-  // controls for square 2 -- MORPH knob
+  // controls for overdrive -- MORPH knob
 
-  float square_pw_2 = 1.3f * parameters.morph - 0.15f;
-  CONSTRAIN(square_pw_2, 0.005f, 0.5f);
+  const float drive = max(parameters.morph * 2.0f - 1.0f, 0.0f)
 
-  const float square_sync_ratio_2 = parameters.morph < 0.5f
-      ? 0.0f
-      : (parameters.morph - 0.5f) * (parameters.morph - 0.5f) * 4.0f * 48.0f;
+  // render
 
-  const float square_gain_2 = min(parameters.morph * 8.0f, 1.0f);
+  sync_.Render<false>(
+      primary_f, primary_f, square_pw, 1.0f, temp_buffer_, size);
 
-  const float square_sync_f_2 = NoteToFrequency(
-      parameters.note + square_sync_ratio_2);
+  variable_saw_square_.Render<false>(
+      auxiliary_f, auxiliary_f, square_pw, 1.0f, out, size);
 
-  const float square_gain_2 = min(parameters.morph * 8.0f, 1.0f);
-
-  sync_.Render<False>(
-      primary_f, square_sync_f, square_pw, 1.0f, temp_buffer_, size);
-
-  variable_saw_square_.Render<False>(
-      auxiliary_f, square_sync_f_2, square_pw_2, 1.0f, out, size);
-
-  float norm = 1.0f / (std::max(square_gain, square_gain_2));
+  float norm = 1.0f / (std::max(square_gain, square_gain));
 
   ParameterInterpolator square_gain_modulation(
       &auxiliary_amount_,
@@ -236,13 +224,18 @@ void VirtualAnalogEngine::Render(
 
   ParameterInterpolator saw_gain_modulation(
       &xmod_amount_,
-      square_gain_2 * 0.5f * norm,
+      square_gain * 0.3f * norm,
       size);
 
   for (size_t i = 0; i < size; ++i) {
     out[i] = out[i] * saw_gain_modulation.Next() + \
         square_gain_modulation.Next() * temp_buffer_[i];
   }
+
+  overdrive_.Process(
+    0.5f + 0.5f * drive,
+    out,
+    size);
 
 #endif  // VA_VARIANT values
 

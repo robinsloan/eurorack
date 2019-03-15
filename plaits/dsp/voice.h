@@ -8,10 +8,10 @@
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -19,7 +19,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-// 
+//
 // See http://creativecommons.org/licenses/MIT/ for more information.
 //
 // -----------------------------------------------------------------------------
@@ -49,7 +49,9 @@
 #include "plaits/dsp/engine/speech_engine.h"
 #include "plaits/dsp/engine/string_engine.h"
 #include "plaits/dsp/engine/swarm_engine.h"
-#include "plaits/dsp/engine/virtual_analog_engine.h"
+// #include "plaits/dsp/engine/virtual_analog_engine.h"
+#include "plaits/dsp/engine/virtual_analog_mod_square.h"
+
 #include "plaits/dsp/engine/waveshaping_engine.h"
 #include "plaits/dsp/engine/wavetable_engine.h"
 
@@ -67,16 +69,16 @@ class ChannelPostProcessor {
  public:
   ChannelPostProcessor() { }
   ~ChannelPostProcessor() { }
-  
+
   void Init() {
     lpg_.Init();
     Reset();
   }
-  
+
   void Reset() {
     limiter_.Init();
   }
-  
+
   void Process(
       float gain,
       bool bypass_lpg,
@@ -107,11 +109,11 @@ class ChannelPostProcessor {
       }
     }
   }
-  
+
  private:
   stmlib::Limiter limiter_;
   LowPassGate lpg_;
-  
+
   DISALLOW_COPY_AND_ASSIGN(ChannelPostProcessor);
 };
 
@@ -150,12 +152,12 @@ class Voice {
  public:
   Voice() { }
   ~Voice() { }
-  
+
   struct Frame {
     short out;
     short aux;
   };
-  
+
   void Init(stmlib::BufferAllocator* allocator);
   void Render(
       const Patch& patch,
@@ -163,10 +165,10 @@ class Voice {
       Frame* frames,
       size_t size);
   inline int active_engine() const { return previous_engine_index_; }
-    
+
  private:
   void ComputeDecayParameters(const Patch& settings);
-  
+
   inline float ApplyModulations(
       float base_value,
       float modulation_amount,
@@ -180,7 +182,7 @@ class Voice {
     float value = base_value;
     modulation_amount *= std::max(fabsf(modulation_amount) - 0.05f, 0.05f);
     modulation_amount *= 1.05f;
-    
+
     float modulation = use_external_modulation
         ? external_modulation
         : (use_internal_envelope ? envelope : default_internal_modulation);
@@ -188,7 +190,7 @@ class Voice {
     CONSTRAIN(value, minimum_value, maximum_value);
     return value;
   }
-  
+
   AdditiveEngine additive_engine_;
   BassDrumEngine bass_drum_engine_;
   ChordEngine chord_engine_;
@@ -202,32 +204,34 @@ class Voice {
   SpeechEngine speech_engine_;
   StringEngine string_engine_;
   SwarmEngine swarm_engine_;
-  VirtualAnalogEngine virtual_analog_engine_;
+  // VirtualAnalogEngine virtual_analog_engine_;
+
+  VirtualAnalogModSquare virtual_analog_engine_;
   WaveshapingEngine waveshaping_engine_;
   WavetableEngine wavetable_engine_;
 
   stmlib::HysteresisQuantizer engine_quantizer_;
-  
+
   int previous_engine_index_;
   float engine_cv_;
-  
+
   float previous_note_;
   bool trigger_state_;
-  
+
   DecayEnvelope decay_envelope_;
   LPGEnvelope lpg_envelope_;
-  
+
   float trigger_delay_line_[kMaxTriggerDelay];
   DelayLine<float, kMaxTriggerDelay> trigger_delay_;
-  
+
   ChannelPostProcessor out_post_processor_;
   ChannelPostProcessor aux_post_processor_;
-  
+
   EngineRegistry<kMaxEngines> engines_;
-  
+
   float out_buffer_[kMaxBlockSize];
   float aux_buffer_[kMaxBlockSize];
-  
+
   DISALLOW_COPY_AND_ASSIGN(Voice);
 };
 
