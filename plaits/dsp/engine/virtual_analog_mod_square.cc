@@ -38,10 +38,10 @@ using namespace std;
 using namespace stmlib;
 
 void VirtualAnalogModSquare::Init(BufferAllocator* allocator) {
-  primary_.Init();
-  auxiliary_.Init();
-  sync_.Init();
-  variable_saw_square_.Init();
+  square1_.Init();
+  square2_.Init();
+  saw1_.Init();
+  saw2_.Init();
 
   overdrive_.Init();
 
@@ -76,6 +76,7 @@ float VirtualAnalogModSquare::ComputeDetuning(float detune) const {
   return (a + (b - a) * Squash(Squash(detune_fractional))) * sign;
 }
 
+
 void VirtualAnalogModSquare::Render(
     const EngineParameters& parameters,
     float* out,
@@ -83,157 +84,103 @@ void VirtualAnalogModSquare::Render(
     size_t size,
     bool* already_enveloped) {
 
-#if VA_VARIANT == 0
-
-  // 1 = variable waveshape controlled by TIMBRE.
-  // 2 = variable waveshape controlled by MORPH, detuned by HARMONICS.
-  // OUT = 1 + 2.
-  // AUX = 1 + sync 2.
-  const float auxiliary_detune = ComputeDetuning(parameters.harmonics);
-  const float primary_f = NoteToFrequency(parameters.note);
-  const float auxiliary_f = NoteToFrequency(parameters.note + auxiliary_detune);
-  const float sync_f = NoteToFrequency(
-      parameters.note + parameters.harmonics * 48.0f);
-
-  float shape_1 = parameters.timbre * 1.5f;
-  CONSTRAIN(shape_1, 0.0f, 1.0f);
-
-  float pw_1 = 0.5f + (parameters.timbre - 0.66f) * 1.4f;
-  CONSTRAIN(pw_1, 0.5f, 0.99f);
-
-  float shape_2 = parameters.morph * 1.5f;
-  CONSTRAIN(shape_2, 0.0f, 1.0f);
-
-  float pw_2 = 0.5f + (parameters.morph - 0.66f) * 1.4f;
-  CONSTRAIN(pw_2, 0.5f, 0.99f);
-
-  primary_.Render<false>(
-      primary_f, primary_f, pw_1, shape_1, temp_buffer_, size);
-  auxiliary_.Render<false>(auxiliary_f, auxiliary_f, pw_2, shape_2, aux, size);
-  for (size_t i = 0; i < size; ++i) {
-    out[i] = (aux[i] + temp_buffer_[i]) * 0.5f;
-  }
-
-  sync_.Render<true>(primary_f, sync_f, pw_2, shape_2, aux, size);
-  for (size_t i = 0; i < size; ++i) {
-    aux[i] = (aux[i] + temp_buffer_[i]) * 0.5f;
-  }
-
-#elif VA_VARIANT == 1
-
-  // 1 = variable waveshape controlled by MORPH.
-  // 2 = variable waveshape controlled by MORPH.
-  // OUT = crossfade between 1 + 2, 1, 1 sync 2 controlled by TIMBRE.
-  // AUX = 2.
-
-  float auxiliary_amount = max(0.5f - parameters.timbre, 0.0f) * 2.0f;
-  auxiliary_amount *= auxiliary_amount * 0.5f;
-
-  const float xmod_amount = max(parameters.timbre - 0.5f, 0.0f) * 2.0f;
-  const float squashed_xmod_amount = xmod_amount * (2.0f - xmod_amount);
+#if VA_VARIANT == 2
 
   const float auxiliary_detune = ComputeDetuning(parameters.harmonics);
   const float primary_f = NoteToFrequency(parameters.note);
   const float auxiliary_f = NoteToFrequency(parameters.note + auxiliary_detune);
-  const float sync_f = primary_f * SemitonesToRatio(
-      xmod_amount * (auxiliary_detune + 36.0f));
 
-  float shape = parameters.morph * 1.5f;
-  CONSTRAIN(shape, 0.0f, 1.0f);
+  // control for overdrive --> MORPH knob
 
-  float pw = 0.5f + (parameters.morph - 0.66f) * 1.4f;
-  CONSTRAIN(pw, 0.5f, 0.99f);
+  // Render double saw to AUX
 
-  primary_.Render<false>(primary_f, primary_f, pw, shape, out, size);
-  sync_.Render<true>(primary_f, sync_f, pw, shape, aux, size);
+  /*float saw_pw = parameters.timbre < 0.5f
+      ? parameters.timbre + 0.5f
+      : 1.0f - (parameters.timbre - 0.5f) * 2.0f;
+  saw_pw *= 1.1f;
+  */
 
-  ParameterInterpolator xmod_amount_modulation(
-      &xmod_amount_,
-      squashed_xmod_amount * (2.0f - squashed_xmod_amount),
-      size);
-  for (size_t i = 0; i < size; ++i) {
-    out[i] += (aux[i] - out[i]) * xmod_amount_modulation.Next();
-  }
+  float saw_pw = parameters.timbre / 2.0f * 1.1f;
 
-  auxiliary_.Render<false>(auxiliary_f, auxiliary_f, pw, shape, aux, size);
+  CONSTRAIN(saw_pw, 0.005f, 1.0f);
 
-  ParameterInterpolator auxiliary_amount_modulation(
+  float saw_shape = 10.0f - 21.0f * parameters.timbre;
+  CONSTRAIN(saw_shape, 0.0f, 1.0f);
+
+  float saw_gain = 8.0f * (1.0f - parameters.timbre);
+  CONSTRAIN(saw_gain, 0.02f, 1.0f);
+
+  // Render saws to AUX
+  saw1_.Render(primary_f, saw_pw, saw_shape, out, size);
+  saw2_.Render(auxiliary_f, saw_pw, saw_shape, aux, size);
+
+  /*float saw_norm = 1.0f / (std::max(saw_gain, saw_gain));
+
+  ParameterInterpolator square_gain_modulation_aux(
       &auxiliary_amount_,
-      auxiliary_amount,
+      saw_gain * 0.5f * saw_norm,
       size);
+
+  ParameterInterpolator saw_gain_modulation_aux(
+      &xmod_amount_,
+      saw_gain * 0.5f * saw_norm,
+      size);
+  */
+
   for (size_t i = 0; i < size; ++i) {
-    out[i] += (aux[i] - out[i]) * auxiliary_amount_modulation.Next();
+    aux[i] = aux[i] * 0.5f + out[i] * 0.5f;
   }
 
-#elif VA_VARIANT == 2
+  const float aux_drive = parameters.morph * 3.0;
 
-  // 1 = variable square controlled by TIMBRE.
-  // 2 = variable saw controlled by MORPH.
-  // OUT = 1 + 2.
-  // AUX = dual variable waveshape controlled by MORPH, self sync by TIMBRE.
+  overdrive_.Process(
+    0.5f + 0.5f * aux_drive,
+    aux,
+    size);
 
-  const float sync_amount = parameters.timbre * parameters.timbre;
-  const float auxiliary_detune = ComputeDetuning(parameters.harmonics);
-  const float primary_f = NoteToFrequency(parameters.note);
-  const float auxiliary_f = NoteToFrequency(parameters.note + auxiliary_detune);
-  const float primary_sync_f = NoteToFrequency(
-      parameters.note + sync_amount * 48.0f);
-  const float auxiliary_sync_f = NoteToFrequency(
-      parameters.note + auxiliary_detune + sync_amount * 48.0f);
-
-  float shape = parameters.morph * 1.5f;
-  CONSTRAIN(shape, 0.0f, 1.0f);
-
-  float pw = 0.5f + (parameters.morph - 0.66f) * 1.46f;
-  CONSTRAIN(pw, 0.5f, 0.995f);
-
-  // Render monster sync to AUX.
-  primary_.Render<true>(primary_f, primary_sync_f, pw, shape, out, size);
-  auxiliary_.Render<true>(auxiliary_f, auxiliary_sync_f, pw, shape, aux, size);
-  for (size_t i = 0; i < size; ++i) {
-    aux[i] = (aux[i] - out[i]) * 0.5f;
-  }
-
-  // Render double varishape to OUT.
-
+  // Render double square to OUT.
   // controls for square waves -- TIMBRE knob
 
-  float square_pw = 1.3f * parameters.timbre - 0.15f;
+  float square_pw = parameters.timbre * 1.1f / 2.0f;
   CONSTRAIN(square_pw, 0.005f, 0.5f);
 
-  const float square_gain = min(parameters.timbre * 8.0f, 1.0f);
-
-  // controls for overdrive -- MORPH knob
-
-  const float drive = max(parameters.morph * 2.0f - 1.0f, 0.0f)
+  //float square_gain = min(parameters.timbre * 8.0f, 1.0f);
 
   // render
 
-  sync_.Render<false>(
+  square1_.Render<false>(
       primary_f, primary_f, square_pw, 1.0f, temp_buffer_, size);
 
-  variable_saw_square_.Render<false>(
+  square2_.Render<false>(
       auxiliary_f, auxiliary_f, square_pw, 1.0f, out, size);
 
-  float norm = 1.0f / (std::max(square_gain, square_gain));
+  /*
+  float square_norm = 1.0f / (std::max(square_gain, square_gain));
 
   ParameterInterpolator square_gain_modulation(
       &auxiliary_amount_,
-      square_gain * 0.3f * norm,
+      square_gain * 0.5f * square_norm,
       size);
 
   ParameterInterpolator saw_gain_modulation(
       &xmod_amount_,
-      square_gain * 0.3f * norm,
+      square_gain * 0.5f * square_norm,
       size);
 
   for (size_t i = 0; i < size; ++i) {
     out[i] = out[i] * saw_gain_modulation.Next() + \
         square_gain_modulation.Next() * temp_buffer_[i];
   }
+  */
+
+  for (size_t i = 0; i < size; ++i) {
+    out[i] = out[i] * 0.5f + temp_buffer_[i] * 0.5f;
+  }
+
+  const float out_drive = parameters.morph * 3.0;
 
   overdrive_.Process(
-    0.5f + 0.5f * drive,
+    0.5f + 0.5f * out_drive,
     out,
     size);
 

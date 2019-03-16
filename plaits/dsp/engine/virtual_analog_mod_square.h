@@ -54,11 +54,11 @@ class VirtualAnalogModSquare : public Engine {
  private:
   float ComputeDetuning(float detune) const;
 
-  VariableShapeOscillator primary_;
-  VariableShapeOscillator auxiliary_;
+  VariableSawOscillator saw1_;
+  VariableSawOscillator saw2_;
 
-  VariableShapeOscillator sync_;
-  VariableShapeOscillator variable_saw_square_;
+  VariableShapeOscillator square1_;
+  VariableShapeOscillator square2_;
 
   Overdrive overdrive_;
 
